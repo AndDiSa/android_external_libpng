@@ -558,14 +558,32 @@ png_set_PLTE(png_structrp png_ptr, png_inforp info_ptr,
    /* Changed in libpng-1.2.1 to allocate PNG_MAX_PALETTE_LENGTH instead
     * of num_palette entries, in case of an invalid PNG file or incorrect
     * call to png_set_PLTE() with too-large sample values.
+    *
+    * Allocate independent buffers for info_ptr and png_ptr so that the
+    * lifetime of png_ptr->palette is decoupled from the lifetime of
+    * info_ptr->palette.  Previously, these two pointers were aliased,
+    * which caused a use-after-free vulnerability if png_free_data freed
+    * info_ptr->palette while png_ptr->palette was still in use by the
+    * row transform functions (e.g. png_do_expand_palette).
+    *
+    * Both buffers are allocated with png_calloc to zero-fill, because
+    * the ARM NEON palette riffle reads all 256 entries unconditionally,
+    * regardless of num_palette.
     */
+   png_free(png_ptr, png_ptr->palette);
    png_ptr->palette = png_voidcast(png_colorp, png_calloc(png_ptr,
        PNG_MAX_PALETTE_LENGTH * (sizeof (png_color))));
+   info_ptr->palette = png_voidcast(png_colorp, png_calloc(png_ptr,
+       PNG_MAX_PALETTE_LENGTH * (sizeof (png_color))));
+   png_ptr->num_palette = info_ptr->num_palette = (png_uint_16)num_palette;
 
    if (num_palette > 0)
-      memcpy(png_ptr->palette, palette, num_palette * (sizeof (png_color)));
-   info_ptr->palette = png_ptr->palette;
-   info_ptr->num_palette = png_ptr->num_palette = (png_uint_16)num_palette;
+   {
+      memcpy(info_ptr->palette, palette, (unsigned int)num_palette *
+          (sizeof (png_color)));
+      memcpy(png_ptr->palette, palette, (unsigned int)num_palette *
+          (sizeof (png_color)));
+   }
 
    info_ptr->free_me |= PNG_FREE_PLTE;
 
